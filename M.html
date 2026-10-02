@@ -173,6 +173,7 @@ tr.me td{background:rgba(25,240,160,.1)}tr.z1 td:first-child{box-shadow:inset -4
 .skel{height:84px;border-radius:16px;background:linear-gradient(90deg,var(--card),var(--card2),var(--card));background-size:200% 100%;animation:sk 1.2s infinite}@keyframes sk{to{background-position:-200% 0}}
 .empty{padding:34px 10px;text-align:center;color:var(--mut)}.empty em{display:block;font-size:46px;font-style:normal;margin-bottom:6px;opacity:.7}
 .msg{padding:9px 12px;border-radius:14px;background:var(--card);border:1px solid var(--line);max-width:88%}.msg.me{background:rgba(25,240,160,.14);border-color:rgba(25,240,160,.35);align-self:flex-start}.msg b{font-size:12px;color:var(--cy)}
+.msg.sys{align-self:center;max-width:94%;text-align:center;font-size:13px;background:rgba(255,77,109,.1);border-color:rgba(255,77,109,.35)}
 .chat{display:flex;flex-direction:column;gap:8px;height:52vh;overflow:auto;padding:8px;background:rgba(0,0,0,.2);border-radius:16px;border:1px solid var(--line)}
 @media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 
@@ -195,6 +196,8 @@ const FORM={'4-3-3':[4,3,3],'4-4-2':[4,4,2],'3-4-3':[3,4,3],'3-5-2':[3,5,2],'4-2
 const tier=p=>p>=10000?3:p>=6000?2:p>=1500?1:0;
 const short=p=>p>=1000?nf(Math.round(p/100)/10)+'k':nf(p);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const fmtRem=ms=>{const s=Math.max(0,Math.ceil(ms/1000));return nf(Math.floor(s/60))+':'+nf(s%60).padStart(2,'۰')};
+const NIL='00000000-0000-0000-0000-000000000000';
 const todayTeh=()=>new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Tehran'});
 const fdate=t=>new Date(t).toLocaleString('fa-IR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 const S={me:null,players:[],settings:{},route:'home',timers:[],pc:{}};
@@ -233,6 +236,7 @@ const rpc=(n,a={})=>http('/rest/v1/rpc/'+n,{method:'POST',body:a});
 const tb=(t,q='')=>http('/rest/v1/'+t+(q?'?'+q:''));
 const normPhone=s=>String(s).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/\D/g,'');
 const mail=p=>p+'@gm.goalmaster.app';
+const toLatin=s=>String(s??'').replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
 async function doLogin(ph,pw){saveSes(normSes(await http('/auth/v1/token?grant_type=password',{method:'POST',auth:false,body:{email:mail(ph),password:pw}})))}
 async function doSignup(ph,pw){const j=await http('/auth/v1/signup',{method:'POST',auth:false,body:{email:mail(ph),password:pw}});
  if(j&&j.access_token)saveSes(normSes(j));else await doLogin(ph,pw)}
@@ -279,7 +283,7 @@ function paintNav(){const cur=MORE.includes(S.route)?'more':S.route;$('#dock').i
 /* ---------- مسیر‌یابی ---------- */
 const PAGES={};
 async function route(){if(!S.me)return;S.timers.forEach(clearInterval);S.timers=[];
- const parts=(location.hash.replace(/^#\/?/,'')||'home').split('/');let r=parts[0];if(!PAGES[r])r='home';S.route=r;S.sub=parts[1];
+ const parts=(location.hash.replace(/^#\/?/,'')||'home').split('/');let r=parts[0];if(!PAGES[r])r='home';S.route=r;S.sub=parts[1];S.arg=parts[2];
  paintNav();const v=$('#view');v.innerHTML='<div class="page" id="pg"></div>';scrollTo(0,0);
  try{await PAGES[r]($('#pg'))}catch(e){$('#pg').innerHTML=`<div class="card empty"><em>⚠️</em>${esc(e.message)}<br><br><button class="btn sm" data-a="reload">تلاش دوباره</button></div>`}}
 const go=h=>{location.hash='#/'+h};
@@ -322,14 +326,13 @@ function startPolling(){clearInterval(_poll);let n=0;_poll=setInterval(async()=>
 async function refreshAll(){await loadMe();await loadPlayers();paintHeader()}
 
 /* ---------- خانه ---------- */
-PAGES.home=async el=>{const me=S.me;el.innerHTML=skel(4);
- const q=[tb('gm_news','select=*&order=id.desc&limit=10'),tb('gm_profiles','select=id,team_name,avatar,rating,wins&is_bot=eq.false&order=rating.desc&limit=5'),
-  tb('gm_matches',`select=id,a,b,a_name,b_name,score_a,score_b&played=eq.true&or=(a.eq.${me.id},b.eq.${me.id})&order=id.desc&limit=5`),
-  tb('gm_profiles',`select=id&is_bot=eq.false&rating=gt.${me.rating}`)];
- const [news,top,hist,above]=await Promise.all(q);let nxt=null;
+PAGES.home=async el=>{el.innerHTML=skel(4);await loadMe();const me=S.me;
+ const [news,top,hist,above]=await Promise.all([tb('gm_news','select=*&order=id.desc&limit=10'),tb('gm_profiles','select=id,team_name,avatar,rating,wins&is_bot=eq.false&order=rating.desc&limit=5'),
+  rpc('gm_form',{p_n:5}),tb('gm_profiles',`select=id&is_bot=eq.false&rating=gt.${me.rating}`)]);let nxt=null;
  if(me.league){const sid=await rpc('gm_my_season');if(sid){const r=await tb('gm_matches',`season_id=eq.${sid}&played=eq.false&or=(a.eq.${me.id},b.eq.${me.id})&order=scheduled_at&limit=1`);nxt=r[0]}}
  const done=me.last_daily===todayTeh(),stk=me.streak||0,nextR=setting('daily_base',20)+Math.min(done?stk:Math.max(stk,0),6)*setting('daily_streak_step',5);
- const form=hist.map(m=>{const a=m.a===me.id,sa=a?m.score_a:m.score_b,sb=a?m.score_b:m.score_a;return sa>sb?'<i class="w">ب</i>':sa===sb?'<i class="d">م</i>':'<i class="l">ا</i>'}).join('');
+ const sym={w:'✓',d:'=',l:'✕'},form=hist.map(m=>`<i class="${m.r}" title="${esc(m.opp)}">${sym[m.r]}</i>`).join('');
+ const formList=hist.map(m=>`<div class="row sm" style="padding:3px 0"><span class="form"><i class="${m.r}">${sym[m.r]}</i></span><span class="gr" style="flex:1">${m.kind==='league'?'🏆':'⚔️'} ${esc(m.opp)}</span><b>${nf(m.gf)} - ${nf(m.ga)}</b></div>`).join('');
  el.innerHTML=`<div class="card hero glow"><div class="row" style="gap:14px">${ava(me,'')}<div class="gr" style="flex:1"><h1>سلام ${esc(me.team_name)} 👋</h1><div class="mut">رتبه ${nf(above.length+1)} در جدول جهانی · ${me.league?`در ${esc(me.league)}`:'هنوز در لیگی نیستی'}</div></div></div>
  <div class="row wrap" style="margin-top:16px"><button class="btn" data-a="goto" data-to="arena">⚔️ دوئل کن</button><button class="btn ghost" data-a="goto" data-to="squad">⚽ مدیریت تیم</button>${me.league?'':'<button class="btn gold" data-a="goto" data-to="league">🏆 ورود به لیگ</button>'}</div></div>
  <div class="g3" style="margin-top:14px;grid-template-columns:repeat(2,1fr)"><div class="stat"><b data-c="${me.rating}">0</b><span>امتیاز رتبه‌بندی</span></div>
@@ -338,7 +341,7 @@ PAGES.home=async el=>{const me=S.me;el.innerHTML=skel(4);
  <div class="stat"><b data-c="${myPower()}">0</b><span>قدرت ترکیب اصلی</span></div></div>
  <div class="daily ${done?'done':''}" style="margin-top:14px" data-a="daily"><div class="gift">🎁</div><div class="gr" style="flex:1"><div class="b" style="font-size:17px">${done?'جایزه امروز را گرفتی':'جایزه روزانه آماده است!'}</div><div class="sm mut">${done?`فردا ${nf(nextR)} سکه · ${nf(stk)} روز پشت‌سرهم 🔥`:`${nf(nextR)} سکه · هر روز بیایی جایزه بیشتر می‌شود 🔥`}</div></div>${done?'':'<span class="btn gold sm">دریافت</span>'}</div>
  <div class="g2" style="margin-top:14px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
- <div class="card"><div class="b" style="margin-bottom:10px">🔥 فرم اخیر</div>${form?`<div class="form">${form}</div>`:'<div class="mut sm">هنوز بازی نکرده‌ای</div>'}
+ <div class="card"><div class="b" style="margin-bottom:10px">🔥 فرم اخیر</div>${form?`<div class="form">${form}</div><div style="margin-top:10px">${formList}</div><div class="xs mut" style="margin-top:8px">آمار شامل دوئل‌هایی که خودت شروع می‌کنی و بازی‌های لیگ است</div>`:'<div class="mut sm">هنوز بازی نکرده‌ای</div>'}
   ${nxt?`<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)"><div class="b sm">⏱ بازی بعدی لیگ</div><div class="row" style="margin-top:6px"><span class="gr b">${esc(nxt.a_name)} ⚔ ${esc(nxt.b_name)}</span><span class="pill y">${fdate(nxt.scheduled_at)}</span></div></div>`:''}</div>
  <div class="card"><div class="b" style="margin-bottom:10px">🏅 برترین‌ها</div><div class="col" style="gap:8px">${top.map((u,i)=>`<div class="row" data-a="user" data-id="${u.id}" style="cursor:pointer"><span class="b" style="width:22px">${nf(i+1)}</span>${ava(u,'')}<span class="gr" style="flex:1">${esc(u.team_name)}</span><span class="pill g">${nf(u.rating)}</span></div>`).join('')||empty('🏟️','هنوز کسی نیست')}</div></div></div>
  <h2 class="t">📰 خبرها</h2><div class="card news">${news.map(n=>`<div class="${esc(n.kind)}">${esc(n.text)}</div>`).join('')||empty('📰','خبری نیست')}</div>`;
@@ -362,7 +365,7 @@ function drawSquad(el){el=el||$('#pg');const P=pmap(),sp=slotPos(SQ.form),r=FORM
  <button class="btn ghost sm" data-a="autolu">✨ چیدن خودکار</button><button class="btn sm" data-a="savelu" ${full?'':'disabled'}>💾 ذخیره${SQ.dirty?' *':''}</button></div>
  <div class="pitch"><div class="hl"></div>${order}</div>
  <h2 class="t">نیمکت</h2><div class="row" style="justify-content:center;gap:16px">${cell(11)}${cell(12)}</div>
- <h2 class="t">همه بازیکنان <small>${nf(S.players.length)} نفر</small></h2><div class="g4">${S.players.map(p=>pcard(p,{tag:p.list_price?'در بازار':''})).join('')}</div>`;
+ <h2 class="t">همه بازیکنان <small>${nf(S.players.length)} از ${nf(setting('max_squad',28))} نفر</small></h2><div class="g4">${S.players.map(p=>pcard(p,{tag:p.list_price?'در بازار':''})).join('')}</div>`;
  $('#fsel').onchange=e=>{SQ.form=e.target.value;SQ.slots=arrange(SQ.form,SQ.slots.filter(Boolean));SQ.dirty=true;drawSquad()}}
 A.slot=t=>{const i=Number(t.dataset.i);if(isNaN(i))return;const sp=slotPos(SQ.form),bench=i>=11,pos=bench?null:sp[i],P=pmap(),st=new Set(SQ.slots.slice(0,11));
  const c=S.players.filter(p=>!p.list_price&&(bench?!st.has(p.id):p.pos===pos));
@@ -392,9 +395,9 @@ A.renew=t=>act(t,async()=>{const r=await rpc('gm_renew',{p_id:t.dataset.id});toa
 A.train1=t=>act(t,async()=>{const r=await rpc('gm_train',{p_id:t.dataset.id});toast(`💪 +${nf(r.gain)} قدرت`);FX.burst(innerWidth/2,300,30);await afterTx()});
 A.unlist=t=>act(t,async()=>{await rpc('gm_unlist_player',{p_id:t.dataset.id});toast('از بازار برداشته شد');await afterTx()});
 A.sellui=t=>{const p=S.pc[t.dataset.id],b=p.power*2,lo=Math.max(1,Math.floor(b*.8)),hi=Math.max(1,Math.ceil(b*1.2));closeSheet();
- sheet(`<h3>فروش ${esc(p.name)}</h3><p class="mut sm">قیمت مجاز: ${nf(lo)} تا ${nf(hi)} سکه</p><input id="sp" type="number" inputmode="numeric" min="${lo}" max="${hi}" value="${b}"><button class="btn gold block" style="margin-top:14px" data-a="sell" data-id="${p.id}" data-lo="${lo}" data-hi="${hi}">قرار دادن در بازار</button>`)};
-A.sell=t=>act(t,async()=>{const v=Math.round(Number($('#sp').value));if(!(v>=t.dataset.lo&&v<=t.dataset.hi))throw new Error('قیمت خارج از بازه است');await rpc('gm_list_player',{p_id:t.dataset.id,p_price:v});toast('بازیکن در بازار قرار گرفت ✅');await afterTx()});
-A.buy=t=>act(t,async()=>{const p=S.pc[t.dataset.id];if(S.me.coins<p.list_price)throw new Error('سکه کافی نداری؛ از فروشگاه شارژ کن');
+ sheet(`<h3>فروش ${esc(p.name)}</h3><p class="mut sm">قیمت مجاز: ${nf(lo)} تا ${nf(hi)} سکه</p><input id="sp" type="text" inputmode="numeric" value="${b}"><button class="btn gold block" style="margin-top:14px" data-a="sell" data-id="${p.id}" data-lo="${lo}" data-hi="${hi}">قرار دادن در بازار</button>`)};
+A.sell=t=>act(t,async()=>{const v=Math.round(Number(toLatin($('#sp').value)));if(!(v>=t.dataset.lo&&v<=t.dataset.hi))throw new Error('قیمت خارج از بازه است');await rpc('gm_list_player',{p_id:t.dataset.id,p_price:v});toast('بازیکن در بازار قرار گرفت ✅');await afterTx()});
+A.buy=t=>act(t,async()=>{const p=S.pc[t.dataset.id];if(S.players.length>=setting('max_squad',28))throw new Error(`سقف ${nf(setting('max_squad',28))} بازیکن در تیم پر شده؛ اول یکی را بفروش`);if(S.me.coins<p.list_price)throw new Error('سکه کافی نداری؛ از فروشگاه شارژ کن');
  const r=await rpc('gm_buy_player',{p_id:p.id});FX.rain(120);toast(`🎉 ${r.name} حالا مال توست!`);await afterTx()});
 
 /* ---------- بازار ---------- */
@@ -443,7 +446,7 @@ A.rpclose=()=>{const o=$('.live');if(!o)return;o._stop&&o._stop();const cb=o._cb
 A.replay=t=>act(t,async()=>{const r=await tb('gm_matches',`id=eq.${t.dataset.id}&select=*`);if(r[0])openReplay(r[0])});
 
 /* ---------- میدان نبرد: دوئل / تمرینی / پنالتی / تاریخچه ---------- */
-PAGES.arena=async el=>{const tab=['duel','bots','pen','hist'].includes(S.sub)?S.sub:'duel',me=S.me,lim=setting('duel_daily_limit',10),used=me.duels_day===todayTeh()?me.duels_today:0;
+PAGES.arena=async el=>{await loadSettings().catch(()=>{});const tab=['duel','bots','pen','hist'].includes(S.sub)?S.sub:'duel',me=S.me,lim=setting('duel_daily_limit',10),used=me.duels_day===todayTeh()?me.duels_today:0;
  el.innerHTML=`<h2 class="t">میدان نبرد <small>دوئل امروز: ${nf(used)} از ${nf(lim)}</small></h2><div class="tabs">${[['duel','⚔️ حریف واقعی'],['bots','🤖 تمرینی'],['pen','🥅 پنالتی'],['hist','📜 تاریخچه']].map(([k,v])=>`<button class="${tab===k?'on':''}" data-a="goto" data-to="arena/${k}">${v}</button>`).join('')}</div><div id="ab" style="margin-top:14px">${skel(3)}</div>`;
  const ab=$('#ab');
  const done=async r=>{await loadMe();paintHeader();const m=(await tb('gm_matches',`id=eq.${r.id}&select=*`))[0];openReplay(m,{onclose:()=>route()})};
@@ -455,8 +458,8 @@ PAGES.arena=async el=>{const tab=['duel','bots','pen','hist'].includes(S.sub)?S.
   <div class="row" style="margin:14px 0"><input id="us" placeholder="🔍 جستجوی نام تیم..."></div><div class="col" id="ul">${skel(3)}</div>`;let to;$('#us').oninput=e=>{clearTimeout(to);to=setTimeout(()=>draw(e.target.value.trim()),350)};await draw()}
  else if(tab==='bots'){const r=await tb('gm_profiles','select=id,team_name,rating,bot_tier&is_bot=eq.true&order=bot_tier');
   ab.innerHTML=`<div class="card mut sm" style="margin-bottom:12px">باشگاه‌های ربات برای تمرین و کسب امتیاز؛ هرچه سطح بالاتر، سخت‌تر.</div><div class="col">${r.map(u=>`<div class="li"><div class="ava" style="background:linear-gradient(135deg,var(--cy),var(--vi))">🤖</div><div class="gr"><div class="b">${esc(u.team_name)}</div><div class="xs">${'★'.repeat(Math.ceil(u.bot_tier/12*5))}<span class="mut">${'★'.repeat(5-Math.ceil(u.bot_tier/12*5))}</span></div></div><span class="pill">${nf(u.rating)}</span><button class="btn sm" data-a="duelwith" data-id="${u.id}">بازی</button></div>`).join('')}</div>`}
- else if(tab==='hist'){const r=await tb('gm_matches',`select=id,kind,a,b,a_name,b_name,score_a,score_b,extra,created_at&played=eq.true&or=(a.eq.${me.id},b.eq.${me.id})&order=id.desc&limit=30`);
-  ab.innerHTML=`<div class="col">${r.map(m=>{const a=m.a===me.id,sa=a?m.score_a:m.score_b,sb=a?m.score_b:m.score_a,k=sa>sb?'g':sa<sb?'r':'y';return `<div class="li"><span class="pill ${k}">${sa>sb?'برد':sa<sb?'باخت':'مساوی'}</span><div class="gr"><div class="b sm">${esc(m.a_name)} ${nf(m.score_a)} - ${nf(m.score_b)} ${esc(m.b_name)}</div><div class="xs mut">${m.kind==='league'?'🏆 لیگ':'⚔️ دوئل'} · ${fdate(m.created_at)}</div></div><button class="btn ghost sm" data-a="replay" data-id="${m.id}">▶ بازپخش</button></div>`}).join('')||empty('📜','هنوز بازی نکرده‌ای')}</div>`}
+ else if(tab==='hist'){const r=await rpc('gm_history',{p_n:30});
+  ab.innerHTML=`<div class="card mut sm" style="margin-bottom:12px">دوئل‌هایی که دیگران علیه تو زده‌اند «دفاع» است و در آمار برد و باخت حساب نمی‌شود.</div><div class="col">${r.map(m=>{const a=m.a===me.id,sa=a?m.score_a:m.score_b,sb=a?m.score_b:m.score_a,k=m.def?'':sa>sb?'g':sa<sb?'r':'y';return `<div class="li"><span class="pill ${k}">${m.def?'دفاع':m.forfeit?'انصرافی':sa>sb?'برد':sa<sb?'باخت':'مساوی'}</span><div class="gr"><div class="b sm">${esc(m.a_name)} ${nf(m.score_a)} - ${nf(m.score_b)} ${esc(m.b_name)}</div><div class="xs mut">${m.kind==='league'?'🏆 لیگ':'⚔️ دوئل'} · ${fdate(m.t)}</div></div>${m.forfeit?'':`<button class="btn ghost sm" data-a="replay" data-id="${m.id}">▶ بازپخش</button>`}</div>`}).join('')||empty('📜','هنوز بازی نکرده‌ای')}</div>`}
  else penaltyUI(ab)};
 
 /* ---------- پنالتی ---------- */
@@ -473,31 +476,35 @@ A.pz=t=>{if(PEN.busy||PEN.d.length>=5)return;PEN.d.push(Number(t.dataset.z));con
   await loadMe();paintHeader();$('#pm').innerHTML=`<div class="b" style="font-size:18px">${nf(r.goals)} گل از ۵ — <span class="gold">+${nf(r.reward)} 🪙</span></div><button class="btn sm" style="margin-top:10px" data-a="reload">دوباره</button>`;if(r.goals>=4)FX.rain(120)}).catch(()=>{}).finally(()=>{PEN.busy=false})}};
 
 /* ---------- لیگ ---------- */
-PAGES.league=async el=>{await loadMe();const sid=S.me.league?await rpc('gm_my_season'):null;sid?await leagueSeason(el,sid):await leagueList(el)};
+PAGES.league=async el=>{await loadMe();const vm=/^s(\d+)$/.exec(S.sub||'');if(vm)return leagueSeason(el,Number(vm[1]),true);
+ const sid=S.me.league?await rpc('gm_my_season'):null;sid?await leagueSeason(el,sid,false):await leagueList(el)};
 async function leagueList(el){el.innerHTML=`<h2 class="t">لیگ‌ها</h2>${skel(3)}`;
- const [defs,open,done]=await Promise.all([tb('gm_league_defs','select=*&order=tier'),tb('gm_seasons','select=id,league,gm_season_teams(count)&status=eq.open'),tb('gm_seasons','select=league,result,finished_at&status=eq.done&order=id.desc&limit=6')]);
+ const [defs,open,done,mine,running]=await Promise.all([tb('gm_league_defs','select=*&order=tier'),tb('gm_seasons','select=id,league,gm_season_teams(count)&status=eq.open'),tb('gm_seasons','select=league,result,finished_at&status=eq.done&order=id.desc&limit=6'),rpc('gm_my_leagues'),tb('gm_seasons','select=id,league,gm_season_teams(count)&status=eq.running&order=id.desc&limit=10')]);
  const cnt=Object.fromEntries(open.map(s=>[s.league,(s.gm_season_teams[0]&&s.gm_season_teams[0].count)||0]));
- el.innerHTML=`<h2 class="t">لیگ‌ها <small>هر لیگ ۸ تیم · ۷ هفته</small></h2><div class="card mut sm" style="margin-bottom:12px">وقتی ظرفیت ۸ تیمی پر شود (یا ${nf(setting('league_autofill_hours',24))} ساعت بگذرد و ربات‌ها جاها را پر کنند) فصل شروع می‌شود. هر ${nf(setting('league_round_hours',24))} ساعت یک هفته بازی می‌شود و سه تیم برتر جایزه می‌گیرند.</div>
- <div class="col">${defs.map(d=>{const c=cnt[d.name]||0;return `<div class="card"><div class="row"><div style="font-size:34px">${d.tier===1?'👑':d.tier<=3?'🥇':'🏆'}</div><div class="gr" style="flex:1"><div class="b" style="font-size:17px">${esc(d.name)}</div><div class="xs mut">🥇 ${nf(d.prize1)} · 🥈 ${nf(d.prize2)} · 🥉 ${nf(d.prize3)} سکه</div></div><button class="btn sm" data-a="joinleague" data-l="${esc(d.name)}">ورود</button></div>
+ el.innerHTML=`<h2 class="t">لیگ‌ها <small>هر لیگ ۸ تیم · ۷ هفته</small></h2><div class="card mut sm" style="margin-bottom:12px">وقتی ظرفیت ۸ تیمی پر شود (یا ${nf(setting('league_autofill_hours',24))} ساعت بگذرد و ربات‌ها جاها را پر کنند) فصل شروع می‌شود. هر ${nf(setting('league_round_hours',24))} ساعت یک هفته بازی می‌شود و سه تیم برتر جایزه می‌گیرند. <b class="gold">هر لیگ را فقط یک بار می‌توانی بازی کنی.</b></div>
+ <div class="col">${defs.map(d=>{const c=cnt[d.name]||0,did=mine.includes(d.name);return `<div class="card" style="${did?'opacity:.7':''}"><div class="row"><div style="font-size:34px">${d.tier===1?'👑':d.tier<=3?'🥇':'🏆'}</div><div class="gr" style="flex:1"><div class="b" style="font-size:17px">${esc(d.name)}</div><div class="xs mut">🥇 ${nf(d.prize1)} · 🥈 ${nf(d.prize2)} · 🥉 ${nf(d.prize3)} سکه</div></div>${did?'<span class="pill g">شرکت کرده‌ای ✅</span>':`<button class="btn sm" data-a="joinleague" data-l="${esc(d.name)}">ورود</button>`}</div>
  <div class="bar" style="margin-top:10px"><i style="width:${c/8*100}%"></i></div><div class="xs mut" style="margin-top:4px">${nf(c)} از ۸ تیم ثبت‌نام کرده‌اند</div></div>`}).join('')}</div>
+ ${running.length?`<h2 class="t">🔭 لیگ‌های در جریان <small>برای دیدن جدول بزن</small></h2><div class="col">${running.map(s=>`<div class="li" style="cursor:pointer" data-a="goto" data-to="league/s${s.id}"><div class="gr b">${esc(s.league)} <span class="xs mut">#${nf(s.id)}</span></div><span class="pill">${nf((s.gm_season_teams[0]||{}).count||0)} تیم</span><span class="mut">👁</span></div>`).join('')}</div>`:''}
  ${done.length?`<h2 class="t">🏅 قهرمانان اخیر</h2><div class="card col">${done.map(s=>`<div class="row"><span class="pill y">${esc(s.league)}</span><span class="gr b">${esc((s.result&&s.result[0]&&s.result[0].name)||'—')}</span><span class="xs mut">${fdate(s.finished_at)}</span></div>`).join('')}</div>`:''}`}
-A.joinleague=t=>{const l=t.dataset.l;sheet(`<h3>ورود به ${esc(l)}</h3><p class="mut">با ترکیب فعلی‌ات در این لیگ ثبت‌نام می‌شوی. تا شروع فصل می‌توانی خارج شوی.</p><button class="btn block" data-a="joinok" data-l="${esc(l)}">✅ ثبت‌نام</button>`)};
+A.joinleague=t=>{const l=t.dataset.l;sheet(`<h3>ورود به ${esc(l)}</h3><p class="mut">با ترکیب فعلی‌ات در این لیگ ثبت‌نام می‌شوی. <b class="gold">هر لیگ را فقط یک بار می‌شود بازی کرد.</b> تا شروع فصل می‌توانی خارج شوی.</p><button class="btn block" data-a="joinok" data-l="${esc(l)}">✅ ثبت‌نام</button>`)};
 A.joinok=t=>act(t,async()=>{await rpc('gm_league_join',{p_league:t.dataset.l});closeSheet();await loadMe();FX.burst(innerWidth/2,300,50);toast('ثبت‌نام شد!');route()});
-async function leagueSeason(el,sid){el.innerHTML=skel(3);const me=S.me.id,tab=['table','fix','res'].includes(S.sub)?S.sub:'table';
+async function leagueSeason(el,sid,view){el.innerHTML=skel(3);const me=S.me.id,rawTab=view?S.arg:S.sub,tab=['table','fix','res'].includes(rawTab)?rawTab:'table',base=view?`league/s${sid}/`:'league/';
  const [ss,teams,ms]=await Promise.all([tb('gm_seasons',`id=eq.${sid}&select=*`),tb('gm_season_teams',`season_id=eq.${sid}&select=*,p:gm_profiles(id,team_name,avatar,is_bot)`),tb('gm_matches',`season_id=eq.${sid}&select=id,round,a,b,a_name,b_name,score_a,score_b,played,scheduled_at&order=round,id&limit=60`)]);
- const s=ss[0],gd=t=>t.gf-t.ga;teams.sort((a,b)=>b.pts-a.pts||gd(b)-gd(a)||b.gf-a.gf);
- const next=ms.filter(m=>!m.played&&(m.a===me||m.b===me))[0];
+ const s=ss[0];if(!s){el.innerHTML=`<div class="card">${empty('🏆','این لیگ پیدا نشد')}<button class="btn block" data-a="goto" data-to="league">بازگشت</button></div>`;return}
+ const gd=t=>t.gf-t.ga,nm=(id,n)=>`<span data-a="user" data-id="${id}" style="cursor:pointer">${esc(n)}</span>`;teams.sort((a,b)=>b.pts-a.pts||gd(b)-gd(a)||b.gf-a.gf);
+ const next=view?null:ms.filter(m=>!m.played&&(m.a===me||m.b===me))[0];
  let body='';
  if(s.status==='open'){const left=Math.max(0,new Date(s.created_at).getTime()+setting('league_autofill_hours',24)*36e5-Date.now());
-  body=`<div class="card cen glow"><div style="font-size:46px">⏳</div><div class="b" style="font-size:18px">در انتظار تکمیل ظرفیت</div><div class="mut sm">${nf(teams.length)} از ۸ تیم · حداکثر ${nf(Math.ceil(left/36e5))} ساعت دیگر با ربات پر می‌شود</div><button class="btn red sm" style="margin-top:12px" data-a="leaveleague">خروج از لیگ</button></div>
-  <div class="card col" style="margin-top:12px">${teams.map(t=>`<div class="row">${ava(t.p)}<span class="gr b">${esc(t.p.team_name)}</span></div>`).join('')}</div>`}
- else if(tab==='table')body=`<div class="card" style="padding:8px;overflow:auto"><table><tr><th>#</th><th class="l">تیم</th><th>بازی</th><th>برد</th><th>مس</th><th>باخت</th><th>تفاضل</th><th>امتیاز</th></tr>${teams.map((t,i)=>`<tr class="${t.profile_id===me?'me':''} ${i<3?'z'+(i+1):''}"><td>${nf(i+1)}</td><td class="l b">${esc(t.p.team_name)}${t.p.is_bot?' 🤖':''}</td><td>${nf(t.pl)}</td><td>${nf(t.w)}</td><td>${nf(t.d)}</td><td>${nf(t.l)}</td><td>${nf(gd(t))}</td><td class="b gold">${nf(t.pts)}</td></tr>`).join('')}</table></div>`;
+  body=`<div class="card cen glow"><div style="font-size:46px">⏳</div><div class="b" style="font-size:18px">در انتظار تکمیل ظرفیت</div><div class="mut sm">${nf(teams.length)} از ۸ تیم · حداکثر ${nf(Math.ceil(left/36e5))} ساعت دیگر با ربات پر می‌شود</div>${view?'':'<button class="btn red sm" style="margin-top:12px" data-a="leaveleague">خروج از لیگ</button>'}</div>
+  <div class="card col" style="margin-top:12px">${teams.map(t=>`<div class="row" data-a="user" data-id="${t.profile_id}" style="cursor:pointer">${ava(t.p)}<span class="gr b">${esc(t.p.team_name)}</span></div>`).join('')}</div>`}
+ else if(tab==='table')body=`<div class="card" style="padding:8px;overflow:auto"><table><tr><th>#</th><th class="l">تیم</th><th>بازی</th><th>برد</th><th>مس</th><th>باخت</th><th>تفاضل</th><th>امتیاز</th></tr>${teams.map((t,i)=>`<tr class="${t.profile_id===me?'me':''} ${i<3?'z'+(i+1):''}"><td>${nf(i+1)}</td><td class="l b" data-a="user" data-id="${t.profile_id}" style="cursor:pointer">${esc(t.p.team_name)}${t.p.is_bot?' 🤖':''}</td><td>${nf(t.pl)}</td><td>${nf(t.w)}</td><td>${nf(t.d)}</td><td>${nf(t.l)}</td><td>${nf(gd(t))}</td><td class="b gold">${nf(t.pts)}</td></tr>`).join('')}</table></div><div class="xs mut cen" style="margin-top:8px">برای دیدن پروفایل هر تیم روی اسمش بزن</div>`;
  else{const rows=tab==='fix'?ms:ms.filter(m=>m.played).reverse();let rnd=-1;
   body=`<div class="col">${rows.map(m=>{const h=tab==='fix'&&m.round!==rnd?(rnd=m.round,`<h2 class="t" style="margin:10px 0 0">هفته ${nf(m.round)}</h2>`):'';const mine=m.a===me||m.b===me;
-   return h+`<div class="li" style="${mine?'border-color:rgba(25,240,160,.5)':''}"><div class="gr b sm">${esc(m.a_name)} ${m.played?`<span class="gold">${nf(m.score_a)} - ${nf(m.score_b)}</span>`:'⚔'} ${esc(m.b_name)}</div>${m.played?`<button class="btn ghost sm" data-a="replay" data-id="${m.id}">▶</button>`:`<span class="pill">${fdate(m.scheduled_at)}</span>`}</div>`}).join('')||empty('📅','هنوز بازی‌ای نیست')}</div>`}
- el.innerHTML=`<h2 class="t">${esc(s.league)} <small>${s.status==='running'?'در جریان':'در انتظار'}</small></h2>
+   return h+`<div class="li" style="${mine?'border-color:rgba(25,240,160,.5)':''}"><div class="gr b sm">${nm(m.a,m.a_name)} ${m.played?`<span class="gold">${nf(m.score_a)} - ${nf(m.score_b)}</span>`:'⚔'} ${nm(m.b,m.b_name)}</div>${m.played?`<button class="btn ghost sm" data-a="replay" data-id="${m.id}">▶</button>`:`<span class="pill">${fdate(m.scheduled_at)}</span>`}</div>`}).join('')||empty('📅','هنوز بازی‌ای نیست')}</div>`}
+ el.innerHTML=`<h2 class="t">${esc(s.league)} <small>${view?'👁 مشاهده · ':''}${s.status==='running'?'در جریان':s.status==='open'?'در انتظار':'پایان‌یافته'}</small></h2>
+ ${view?`<button class="btn ghost sm" data-a="goto" data-to="league" style="margin-bottom:12px">← بازگشت به لیگ‌ها</button>`:''}
  ${next?`<div class="card glow row" style="margin-bottom:12px"><div style="font-size:32px">⏱</div><div class="gr" style="flex:1"><div class="b">بازی بعدی: ${esc(next.a_name)} ⚔ ${esc(next.b_name)}</div><div class="xs mut">هفته ${nf(next.round)} · ${fdate(next.scheduled_at)}</div></div></div>`:''}
- ${s.status==='running'?`<div class="tabs" style="margin-bottom:12px">${[['table','جدول'],['fix','برنامه'],['res','نتایج']].map(([k,v])=>`<button class="${tab===k?'on':''}" data-a="goto" data-to="league/${k}">${v}</button>`).join('')}</div>`:''}${body}`}
+ ${s.status!=='open'?`<div class="tabs" style="margin-bottom:12px">${[['table','جدول'],['fix','برنامه'],['res','نتایج']].map(([k,v])=>`<button class="${tab===k?'on':''}" data-a="goto" data-to="${base}${k}">${v}</button>`).join('')}</div>`:''}${body}`}
 A.leaveleague=t=>act(t,async()=>{await rpc('gm_league_leave');await loadMe();toast('از لیگ خارج شدی');route()});
 
 /* ---------- منوی بیشتر ---------- */
@@ -513,7 +520,10 @@ A.user=t=>act(t,async()=>{const [u,pl]=await Promise.all([tb('gm_profiles',`id=e
  sheet(`<div class="cen">${ava(p,'').replace('class="ava "','class="ava" style="width:76px;height:76px;margin:0 auto;font-size:30px"')}<h3 style="margin:10px 0 2px">${esc(p.team_name)}${p.is_bot?' 🤖':''}</h3><div class="mut sm">${p.league?esc(p.league):'بدون لیگ'}</div></div>
  <div class="g2" style="margin:14px 0;grid-template-columns:repeat(3,1fr)"><div class="stat"><b>${nf(p.rating)}</b><span>امتیاز</span></div><div class="stat"><b>${nf(p.wins)}</b><span>برد</span></div><div class="stat"><b>${nf(p.goals_for)}</b><span>گل زده</span></div></div>
  <div class="b" style="margin-bottom:8px">⭐ ستاره‌های تیم</div><div class="g4" style="grid-template-columns:repeat(3,1fr)">${pl.map(x=>pcard(x,{mini:true,act:'noop'})).join('')}</div>
- ${p.id!==S.me.id?`<button class="btn block" style="margin-top:14px" data-a="duelsheet" data-id="${p.id}">⚔️ دوئل با این تیم</button>`:''}`)});
+ ${p.league?`<button class="btn ghost block" style="margin-top:14px" data-a="viewleague" data-id="${p.id}">🏆 مشاهده لیگ ${esc(p.league)}</button>`:''}
+ ${p.id!==S.me.id?`<button class="btn block" style="margin-top:8px" data-a="duelsheet" data-id="${p.id}">⚔️ دوئل با این تیم</button>`:''}
+ ${p.id!==S.me.id&&!p.is_bot&&(S.me.is_admin||S.me.is_mod)?`<button class="btn red block" style="margin-top:8px" data-a="cban" data-id="${p.id}">🛡 مسدودی گفتگو</button>`:''}`)});
+A.viewleague=t=>act(t,async()=>{const sid=await rpc('gm_user_season',{p_user:t.dataset.id});if(!sid)throw new Error('این تیم الان در لیگ فعالی نیست');closeSheet();go('league/s'+sid)});
 A.duelsheet=t=>act(t,async()=>{const r=await rpc('gm_duel',{p_opp:t.dataset.id});closeSheet();await loadMe();paintHeader();const m=(await tb('gm_matches',`id=eq.${r.id}&select=*`))[0];openReplay(m,{onclose:()=>route()})});
 
 /* ---------- تمرین ---------- */
@@ -537,12 +547,27 @@ A.storebuy=t=>{const lnk=S.settings.support_link||'',txt=S.settings.support_text
  sheet(`<h3>خرید ${nf(t.dataset.n)} سکه</h3><div class="card cen"><div class="b gold" style="font-size:22px">${nf(t.dataset.p)} تومان</div><p class="mut">${esc(txt)}</p><div class="xs mut">نام تیم خود را هنگام پرداخت اعلام کن: <b>${esc(S.me.team_name)}</b></div></div>${lnk?`<a class="btn block" style="margin-top:12px;text-decoration:none" href="${esc(lnk)}" target="_blank" rel="noopener">ارتباط با پشتیبانی</a>`:''}`)};
 
 /* ---------- گفتگو ---------- */
-PAGES.chat=async el=>{el.innerHTML=`<h2 class="t">گفتگوی عمومی</h2><div class="chat" id="cl">${skel(3)}</div><div class="row" style="margin-top:10px"><input id="ci" maxlength="200" placeholder="پیام..." style="flex:1"><button class="btn" data-a="csend">ارسال</button></div>`;
- let last=-1;const load=async()=>{const r=(await tb('gm_chat','select=*&order=id.desc&limit=60')).reverse(),id=r.length?r[r.length-1].id:0;if(id===last)return;last=id;const c=$('#cl');if(!c)return;
-  const adm=S.me.is_admin||S.me.is_mod;c.innerHTML=r.map(m=>`<div class="msg ${m.user_id===S.me.id?'me':''}"><b>${esc(m.name)}${m.is_mod?' 🛡':''}</b> ${adm?`<span data-a="cdel" data-id="${m.id}" style="cursor:pointer;color:var(--red);float:left">🗑</span>`:''}<div>${esc(m.text)}</div></div>`).join('')||empty('💬','اولین پیام را بفرست');c.scrollTop=c.scrollHeight};
- await load();every(load,5000);$('#ci').onkeydown=e=>{if(e.key==='Enter')A.csend($('.btn[data-a=csend]'))}};
+PAGES.chat=async el=>{await loadMe();const staff=S.me.is_admin||S.me.is_mod;
+ el.innerHTML=`<h2 class="t">گفتگوی عمومی ${staff?'<small>🛡 حالت ناظر</small>':''}</h2><div id="cban"></div><div class="chat" id="cl">${skel(3)}</div><div class="row" style="margin-top:10px"><input id="ci" maxlength="200" placeholder="پیام..." style="flex:1"><button class="btn" id="cs" data-a="csend">ارسال</button></div>`;
+ const paintBan=()=>{const b=$('#cban');if(!b)return;const u=S.me.ban_until?new Date(S.me.ban_until)-Date.now():0;
+  if(u>0){b.innerHTML=`<div class="card" style="border-color:var(--red);margin-bottom:10px">🔇 از گفتگو مسدود شده‌ای · زمان باقی‌مانده: <b class="redt" dir="ltr">${fmtRem(u)}</b></div>`;$('#ci').disabled=true;$('#cs').disabled=true}
+  else if(b.innerHTML){b.innerHTML='';$('#ci').disabled=false;$('#cs').disabled=false}};
+ paintBan();every(paintBan,1000);
+ let last='';const load=async()=>{const [r0,bn]=await Promise.all([tb('gm_chat','select=*&order=id.desc&limit=60'),tb('gm_profiles','select=id,ban_until&ban_until=gt.'+encodeURIComponent(new Date().toISOString()))]);
+  const r=r0.reverse(),bm=Object.fromEntries(bn.map(x=>[x.id,x.ban_until])),sig=(r.length?r[r.length-1].id:0)+'|'+bn.map(x=>x.id+x.ban_until).join(',');if(sig===last)return;last=sig;const c=$('#cl');if(!c)return;
+  c.innerHTML=r.map(m=>{if(m.user_id===NIL)return `<div class="msg sys">${esc(m.text)}</div>`;const bu=bm[m.user_id],canBan=staff&&m.user_id!==S.me.id&&(!m.is_mod||S.me.is_admin);
+   return `<div class="msg ${m.user_id===S.me.id?'me':''}"><b data-a="user" data-id="${m.user_id}" style="cursor:pointer">${esc(m.name)}${m.is_mod?' 🛡':''}</b> ${bu?`<span class="pill r">🔇 ${fmtRem(new Date(bu)-Date.now())}</span>`:''}${staff?`<span style="float:left">${canBan?`<span data-a="cban" data-id="${m.user_id}" data-n="${esc(m.name)}" style="cursor:pointer;margin-left:8px" title="مسدود کردن">🔇</span>`:''}<span data-a="cdel" data-id="${m.id}" style="cursor:pointer;color:var(--red)" title="حذف پیام">🗑</span></span>`:''}<div>${esc(m.text)}</div></div>`}).join('')||empty('💬','اولین پیام را بفرست');c.scrollTop=c.scrollHeight};
+ await load();every(load,5000);$('#ci').onkeydown=e=>{if(e.key==='Enter')A.csend($('#cs'))}};
 A.csend=t=>act(t,async()=>{const i=$('#ci'),v=i.value.trim();if(!v)return;await rpc('gm_send_chat',{p_text:v});i.value='';route()});
-A.cdel=t=>act(null,async()=>{await rpc('gm_admin_delete_chat',{p_id:Number(t.dataset.id)});route()});
+A.cdel=t=>act(null,async()=>{await rpc('gm_mod_delete_chat',{p_id:Number(t.dataset.id)});route()});
+A.cban=t=>act(t,async()=>{const id=t.dataset.id,r=(await tb('gm_profiles',`id=eq.${id}&select=team_name,ban_until`))[0];if(!r)throw new Error('کاربر پیدا نشد');
+ const rem=r.ban_until?new Date(r.ban_until)-Date.now():0;
+ sheet(`<h3>🛡 مسدودی ${esc(r.team_name)}</h3><p class="mut sm">کاربر مسدود فقط از گفتگو محروم می‌شود و بقیه بخش‌های بازی را می‌تواند استفاده کند.</p>
+ ${rem>0?`<div class="card" style="border-color:var(--red);margin-bottom:12px">🔇 الان مسدود است · باقی‌مانده: <b class="redt" id="bsr" dir="ltr">${fmtRem(rem)}</b></div>`:''}
+ <div class="g2">${[[5,'۵ دقیقه'],[15,'۱۵ دقیقه'],[30,'۳۰ دقیقه'],[60,'۱ ساعت']].map(([m,l])=>`<button class="btn red" data-a="doban" data-id="${id}" data-m="${m}">🔇 ${l}</button>`).join('')}</div>
+ ${rem>0?`<button class="btn ghost block" style="margin-top:12px" data-a="doban" data-id="${id}" data-m="0">✅ رفع مسدودی</button>`:''}`);
+ if(rem>0){const end=Date.now()+rem,iv=setInterval(()=>{const e=$('#bsr');if(!e){clearInterval(iv);return}e.textContent=fmtRem(end-Date.now())},1000)}});
+A.doban=t=>act(t,async()=>{const m=Number(t.dataset.m);await rpc('gm_mod_ban',{p_user:t.dataset.id,p_minutes:m});closeSheet();toast(m?`🔇 مسدود شد (${m===60?'۱ ساعت':nf(m)+' دقیقه'})`:'مسدودی برداشته شد ✅');if(S.route==='chat')route()});
 
 /* ---------- پروفایل ---------- */
 PAGES.profile=async el=>{await loadMe();const me=S.me;
